@@ -1,6 +1,6 @@
 matplotlib
 numpy
-skimage
+scikit-image
 streamlit
 pandas
 geopandas
