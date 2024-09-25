@@ -8,4 +8,4 @@ requests
 Pillow
 rasterio
 shapely
-concurrent.futures
+
