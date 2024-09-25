@@ -1,4 +1,11 @@
-pandas
-numpy 
 matplotlib
-
+numpy
+skimage
+streamlit
+pandas
+geopandas
+requests
+Pillow
+rasterio
+shapely
+concurrent.futures
