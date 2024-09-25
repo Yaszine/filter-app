@@ -5,7 +5,7 @@ import base64
 from pathlib import Path
 from functions import display_image, img_to_html, img_to_bytes, dataframe_to_html, simplify_comment, background_colorize, sort_by_mean_difference, save_shapefile_to_zip, sort_by_mean
 from functions import apply_page_config_and_styles
-from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+#from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 import firebase_admin
 from firebase_admin import credentials, firestore
 import time
