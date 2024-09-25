@@ -9,5 +9,5 @@ Pillow
 rasterio
 shapely
 firebase-admin
-st-aggrid
+
 
