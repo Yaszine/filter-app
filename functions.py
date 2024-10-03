@@ -18,6 +18,14 @@ from rasterio.features import rasterize
 import matplotlib.pyplot as plt
 import streamlit as st
 from shapely.geometry import box
+import folium
+from folium import Element
+import tempfile
+from pyproj import Transformer
+from shapely.geometry import Polygon, box, MultiPolygon
+import zipfile
+import io
+
 
 def img_to_bytes(img_path):
     img_bytes = Path(img_path).read_bytes()
@@ -157,35 +165,41 @@ def dataframe_to_html(df):
 
 
 
+def save_shapefile_to_zip(gdf, output_folder='./streamlit'):
+    # Ensure the output folder exists
+    os.makedirs(output_folder, exist_ok=True)
 
-import zipfile
-import io
+    # Define the base file path for the Shapefile components
+    shapefile_path = os.path.join(output_folder, 'consultant_output')
 
-def save_shapefile_to_zip(gdf, zip_filename="consultant_output.zip"):
-    # Create an in-memory buffer
-    memory_zip = io.BytesIO()
+    # Save the GeoDataFrame as a Shapefile (will generate .shp, .shx, .dbf, etc.)
+    gdf.to_file(f"{shapefile_path}.shp")
 
-    # Write shapefile to a temporary directory
-    with zipfile.ZipFile(memory_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
-        with io.BytesIO() as shp_buffer:
-            gdf.to_file(shp_buffer, driver='ESRI Shapefile')
-            shp_buffer.seek(0)
-            zf.writestr("consultant_output.shp", shp_buffer.getvalue())
-        # Repeat the same process for other necessary files (.shx, .dbf, .prj)
+    # Create an in-memory ZIP file
+    zip_buffer = io.BytesIO()
     
-    memory_zip.seek(0)  # Rewind the buffer
-    return memory_zip
+    # Write the Shapefile components to the ZIP file
+    with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+        for extension in ['shp', 'shx', 'dbf', 'prj']:
+            file_path = f"{shapefile_path}.{extension}"
+            if os.path.exists(file_path):
+                zipf.write(file_path, os.path.basename(file_path))
+    
+    # Return the in-memory ZIP file data
+    zip_buffer.seek(0)  # Move the pointer to the beginning of the buffer
+    return zip_buffer
 
 def sort_by_mean(df, begin_year, end_year, sort_order=True):  
     # Step 1: Define the colors for magnitude calculation
     colors = [
-        ("-100", "1"),
+        ("-120", "1"),
         ("-110", "2"),
-        ("-120", "3"),
+        ("-100", "3"),
         ("0", "4"),  #downgrade to 3 for mostlyGREEN ?
         ("100", "5"),
         ("110", "6"),
         ("120", "7"),
+        ("-99", "8"), ## BRIDGE
     ]
 
     color_to_value = {color: int(value) for value, color in colors}
@@ -207,6 +221,9 @@ def sort_by_mean(df, begin_year, end_year, sort_order=True):
     #convert the numeric values back to colors
     def convert_value_to_color(value):
         for val, color in colors:
+            #see if nan 
+            if pd.isna(value):
+                return 'black'
             if int(value) == int(val):
                 return color
         return 'black'  # Return black if value is not found
@@ -214,6 +231,9 @@ def sort_by_mean(df, begin_year, end_year, sort_order=True):
     # Convert each column from value to color
     for year in range(begin_year, end_year + 1):
         df_sorted[str(year)] = df_sorted[str(year)].apply(convert_value_to_color)
+
+    #remove mean column
+    df_sorted = df_sorted.drop(columns=['mean'])
 
     return df_sorted
 
@@ -309,8 +329,16 @@ def apply_page_config_and_styles():
             display: flex;
             justify-content: center;
         }
+    
+        .streamlit-container {
+            background-color: #052418;
+        }
+        
+
         </style>
         """,
+
+        
         unsafe_allow_html=True
     )
 
@@ -320,141 +348,290 @@ def apply_page_config_and_styles():
 
 
 
-# def display_image_API(gdf, object_id, year, show_label=True, show_prediction=True, image_chosen = 'images'):
 
-#     poly = gdf[gdf['Objekt_id'] == object_id].geometry.values[0]
-#     center = np.array([poly.centroid.x,poly.centroid.y]) 
-#     center_easting = center[0]
-#     center_northing = center[1]
-#     minx = center_easting - 64
-#     miny = center_northing - 64
-#     maxx = center_easting + 64
-#     maxy = center_northing + 64
-#     bbox = box(minx,miny,maxx,maxy)
+
+
+
+
+
+
+
+
+# def sort_by_mean_difference(df, begin_year, end_year, sort_order=True):
+#     # Convert each column from str to numeric values, handle missing values with fillna()
+#     for year in range(begin_year, end_year + 1):
+#         df[str(year)] = pd.to_numeric(df[str(year)], errors='coerce').fillna(0).astype(int)
+
+#     # Step 3: Calculate the weighted gradient between consecutive years
+#     for year in range(begin_year, end_year):
+#         # Ensure both years are available before computing the gradient
+#         if str(year) in df.columns and str(year + 1) in df.columns:
+#             df[f'gradient_{year}'] = df[str(year + 1)] - df[str(year)]
+
+#     # Step 4: Find the year where the weighted gradient is maximum for each row
+#     gradient_columns = [f'gradient_{year}' for year in range(begin_year, end_year)]
+    
+#     # Check if the gradient columns were created correctly and minimum value actually
+#     df['max_gradient_year'] = df[gradient_columns].idxmin(axis=1)
+#     #print(df[df["Objekt_id"] == "45cd921f-5352-11e2-b3db-00155d01e765"]["max_gradient_year"])
     
 
-#     prediction_path = f"./predictions/{object_id}_{year}.npy"
+#     # Ensure if the max gradient is equal for multiple years, we take the latest year
+#     df['max_gradient_year'] = df['max_gradient_year'].apply(lambda x: x.split('_')[-1])
+#     df['max_gradient_year'] = df['max_gradient_year'].astype(int)
+#     #print(df[df["Objekt_id"] == "45cd921f-5352-11e2-b3db-00155d01e765"]["max_gradient_year"])
+#     # Step 5: Calculate the mean for the left and right halves, weighted by the gradients
+#     def calculate_means(row):
+#         max_grad_year = row['max_gradient_year']
+#         left_half_mean = row[[str(year) for year in range(begin_year, max_grad_year + 1)]].mean()
+#         right_half_mean = row[[str(year) for year in range(max_grad_year + 1, end_year + 1)]].mean()
+#         #if row["Objekt_id"] == "45cb480c-5352-11e2-b18b-00155d01e765":#"75231ccf-2676-4d0a-a1cd-97906ed45d5c":
+#             #print(row["Objekt_id"])
+#            # print(left_half_mean)
+#            # print(right_half_mean, row['max_gradient_year'])
+#         return pd.Series({'left_mean': left_half_mean, 'right_mean': right_half_mean})
+
+#     # Apply the function to calculate means
+#     df[['left_mean', 'right_mean']] = df.apply(calculate_means, axis=1)
+
+#     # Step 6: Calculate the difference (right_mean - left_mean)
+#     df['mean_difference'] = df['right_mean'] - df['left_mean']
+
+#     # Special condition: If the last years (closer to `end_year`) show a drop from high (green) to low (red),
+#     # multiply the mean_difference by a factor (e.g., 1.5) to account for significant recent changes.
+#     def emphasize_recent_change(row):
+#         last_year_values = [row[str(end_year - 1)], row[str(end_year)]]
+#         #print(end_year)
+#         #if row["Objekt_id"] == "45cd91f1-5352-11e2-bfdf-00155d01e765":
+#             #print(row["Objekt_id"])
+#             #print(last_year_values)
+#         if all(v in ['5', '6', '7'] for v in last_year_values) and row[str(end_year)] in ['1', '2', '3']:
+#             #print('ok')
+#             return row['mean_difference'] - 1
+#         if all(v in [1, 2, 3] for v in last_year_values) and row[str(end_year)] in [5, 6, 7]:
+#             return row['mean_difference'] + 1
+#         return row['mean_difference']
+
+#     df['mean_difference'] = df.apply(emphasize_recent_change, axis=1)
+
+#     # Step 7: Sort the DataFrame based on the mean difference
+#     df_sorted = df.sort_values(by='mean_difference', ascending=sort_order).reset_index(drop=True)
+
+#     # Drop temporary columns for clarity
+#     df_sorted = df_sorted.drop(columns=gradient_columns + ['max_gradient_year', 'left_mean', 'right_mean'])
+
+#     # Convert each column from int to str
+#     for year in range(begin_year, end_year + 1):
+#         df_sorted[str(year)] = df_sorted[str(year)].astype(str)
     
-#     try:
-#         prediction = np.load(prediction_path)
-#         if image_chosen == 'images':
-#             image = get_img_nir(bbox, year)[0]
-#         elif image_chosen == 'nir':
-#             image = get_img_nir(bbox, year)[1]
-#         elif image_chosen == 'context':
-#             image = get_img_nir_context(bbox, year)[0]
-#         elif image_chosen == 'nir_context':
-#             image = get_img_nir_context(bbox, year)[1]
-#         else:
-#             raise ValueError("Invalid value for image_chosen. Please choose from 'images', 'nir', 'context', or 'nir_context'.")
-#     except ValueError:
-#         raise ValueError("Invalid bounding box. The specified bounding box is not available in the API.")
+#     return df_sorted
 
 
+
+def find_split_point(gradients):
+    # Calculate the difference between consecutive years
+    diffs = np.diff(gradients)
+    # Find the index where the largest change (difference) occurs
+    split_idx = np.argmax(np.abs(diffs))
+    return split_idx
+
+# Create a function to calculate the average transitions before and after the split
+def calculate_before_after_split(gradients, split_idx):
+   # print(gradients, split_idx)
+    # Split gradients into "before" and "after"
+   
+    before = gradients[:split_idx + 1]
+    after = gradients[split_idx  +1:]
+   # print(before)
+    #print(after)
+    # Calculate average transitions for both periods
+    avg_before = np.mean(before)# if len(before) > 0 else 0
+    avg_after = np.mean(after) #if len(after) > 0 else 0
+ 
+    return  avg_after-avg_before
+
+# Apply the functions to the DataFrame
+def process_row(row, begin_year, end_year):
+    year_columns = [f'{year}' for year in range(begin_year, end_year+1)]
+    # Extract the gradient values for the object
+    gradient_columns = [f'gradient_{year}' for year in range(begin_year, end_year)]
+    gradients = row[gradient_columns].values.astype(float)
+    years_ = row[year_columns].values.astype(float)
+    # Find the split point for this object
+    split_idx = find_split_point(gradients)
+
+    # Calculate the average transition before and after the split
+    difference=calculate_before_after_split(row[year_columns], split_idx)
     
-#     # Ensure the image is in a format suitable for RGB display
-#     if image.ndim == 2:  # If grayscale, convert to RGB
-#         modified_image = np.stack((image,) * 3, axis=-1)
-#     elif image.ndim == 3 and image.shape[2] == 1:  # If single-channel but 3D
-#         modified_image = np.repeat(image, 3, axis=2)
-#     else:
-#         modified_image = image.copy()
+    # Return the results as new columns
+    return pd.Series({'split_idx': split_idx, 'difference': difference})
 
-#     # Create a prediction mask based on a threshold
-#     prediction_mask = prediction > 0.7
-#     if image_chosen == 'context' or image_chosen == 'nir_context':
-#         show_label = False
-#         show_prediction = False
+def sort_by_mean_difference(df, begin_year, end_year, sort_order=True):
+    merged_gdf=df.copy()
+    for year in range(begin_year, end_year + 1):
+        df[str(year)] = pd.to_numeric(df[str(year)], errors='coerce').fillna(0).astype(int)
+    df.replace(8, np.nan, inplace=True)
+    df.replace(4, np.nan, inplace=True)
+    df.replace(1, 1, inplace=True)
+    df.replace(2, 2, inplace=True)
+    df.replace(3, 3, inplace=True)
+    df.replace(5, 10, inplace=True)
+    df.replace(6, 11, inplace=True)
+    df.replace(7, 12, inplace=True)
+    for year in range(begin_year, end_year):
+    # Ensure both years are available before computing the gradient
+        if str(year) in df.columns and str(year + 1) in df.columns:
+            df[f'gradient_{year}'] = df[str(year + 1)] - df[str(year)]
+    for year in range(begin_year, end_year ):
+        df[f"gradient_{str(year)}"] = pd.to_numeric( df[f"gradient_{str(year)}"], errors='coerce').fillna(0).astype(int)
+    year_columns = [f'{year}' for year in range(begin_year, end_year+1)]
+    df[year_columns] = df[year_columns].apply(lambda row: row.fillna(row.mean()), axis=1)
 
-#     # Overlay contours for label if required
-#     if show_label:
-#         label = get_labels(bbox, gdf)
-#         label_contours = measure.find_contours(label, 0.5)
-#         for contour in label_contours:
-#             for coord in contour:
-#                 y, x = int(coord[0]), int(coord[1])
-#                 modified_image[y, x] = [0, 255, 0]
-
-#     # Overlay contours for prediction if required
-#     if show_prediction:
-#         prediction_contours = measure.find_contours(prediction_mask, 0.5)  # Find contours in prediction
-#         for contour in prediction_contours:
-#             for coord in contour:
-#                 y, x = int(coord[0]), int(coord[1])
-#                 modified_image[y, x] = [255, 0, 0]  # Red color for prediction contours
-
-#     return modified_image
-
-
-# Function to sort DataFrame based on mean difference after calculating gradient and splitting
-def sort_by_mean_difference(df, begin_year, end_year, sort_order=True):  
-
+   # gradient_columns = [f'gradient_{year}' for year in range(begin_year, end_year)]
     
-    # # Step 1: Define the colors for magnitude calculation
+    # Apply the process to each row in the DataFrame
+    df_split = df.apply(process_row, axis=1, args=(begin_year, end_year))
+    
+    # Add the new columns (split index, avg_before, avg_after) back to the original DataFrame
+    df = pd.concat([df, df_split], axis=1)
+    
+    # Calculate the difference between the average transitions before and after
+    #df['transition_difference'] = df['avg_after'] - df['avg_before']
+    
+    # Sort by the transition difference in descending order
+    df_sorted = df.sort_values(by='difference', ascending=sort_order)
+
+    df_=pd.DataFrame(df_sorted["Objekt_id"]).merge(merged_gdf, on='Objekt_id', how='left')
+
+    return df_
+
+
+
+def get_labels(bbox, gdf):
+    """Generate raster labels for a given bounding box."""
+    filtered_gdf = gdf[gdf["geometry"].intersects(bbox)]
+    
+    # Create an empty raster array
+    raster = np.zeros((1024, 1024))
+    transform = rasterio.transform.from_bounds(*bbox.bounds, 1024, 1024)
+
+    # Rasterize the filtered GeoDataFrame
+    raster = rasterize(
+        [(geometry, 1) for geometry in filtered_gdf.geometry],
+        out_shape=(1024, 1024),
+        transform=transform,
+        all_touched=True
+    )
+
+    # Convert the raster array to an image
+    img = Image.fromarray(np.uint8(raster * 255))  # Scale values for visibility
+    return img
+
+
+
+
+
+def create_map(gdf, gdf_label, objekt_id, year, color_value,  show_label, show_prediction, default_zoom=18):
     # colors = [
     #     ("1", "darkred"),
     #     ("2", "firebrick"),
     #     ("3", "red"),
-    #     ("4", "grey"), 
+    #     ("4", "grey"),
     #     ("5", "lightgreen"),
     #     ("6", "forestgreen"),
     #     ("7", "darkgreen"),
-    # ]
-    
-    # # Create a dictionary to map color to a numeric value
-    # color_to_value = {color: int(value) for value, color in colors}
-    
-    # # Step 2: Convert the color values in the DataFrame to numeric values
-    # def convert_color_to_value(color):
-    #     return color_to_value.get(color, np.nan)  # Replace missing values with NaN
+    # ]    
 
-    # Convert each column from str  to numeric values
-    for year in range(begin_year, end_year + 1):
-        df[str(year)] = df[str(year)].astype(int)
+    # color = [c for v, c in colors if v == color_value][0]
 
+    t = Transformer.from_crs(25832, 4326)
 
-    # Step 3: Calculate the gradient between consecutive years
-    for year in range(begin_year, end_year):
-        df[f'gradient_{year}'] = df[str(year + 1)] - df[str(year)]
-    
-    # Step 4: Find the year where the gradient is maximum for each row
-    gradient_columns = [f'gradient_{year}' for year in range(begin_year, end_year)]
-    df['max_gradient_year'] = df[gradient_columns].idxmax(axis=1)
-    #if the max gradient in two years, take the last one
-    #df['max_gradient_year'] = df['max_gradient_year'].apply(lambda x: x.split('_')[-1]) # TAKE THE LAST COLUMN
-    
-    df['max_gradient_year'] = df['max_gradient_year'].str.extract('(\d+)').astype(int)  # Extract the year as integer
-    
-    # Step 5: Calculate the mean for the left and right halves
-    def calculate_means(row):
-        max_grad_year = row['max_gradient_year']
-        left_half_mean = row[[str(year) for year in range(begin_year, max_grad_year + 1)]].mean()
-        right_half_mean = row[[str(year) for year in range(max_grad_year + 1, end_year + 1)]].mean()
-        return pd.Series({'left_mean': left_half_mean, 'right_mean': right_half_mean})
+    # Define the center point for the map (latitude and longitude)
+    poly = gdf[gdf['Objekt_id'] == objekt_id].geometry.values[0]
+    center = np.array([poly.centroid.x, poly.centroid.y])
+    map_center = t.transform(center[0], center[1])
 
-    # Apply the function to calculate means
-    df[['left_mean', 'right_mean']] = df.apply(calculate_means, axis=1)
-    
-    # Step 6: Calculate the difference (right_mean - left_mean)
-    df['mean_difference'] = df['right_mean'] - df['left_mean']
-    
-    # Step 7: Sort the DataFrame based on the mean difference
-    df_sorted = df.sort_values(by='mean_difference', ascending=sort_order).reset_index(drop=True)
-    
-    # Drop temporary columns for clarity
-    df_sorted = df_sorted.drop(columns=gradient_columns + ['max_gradient_year', 'left_mean', 'right_mean'])
+    gdf_id = gdf[gdf["Objekt_id"] == objekt_id].copy()
+    gdf_id_label = gdf_label[gdf_label["Objekt_id"] == objekt_id].copy()
 
-    # #convert the numeric values back to colors
-    # def convert_value_to_color(value):
-    #     for val, color in colors:
-    #         if int(value) == int(val):
-    #             return color
-    #     return 'black'  # Return black if value is not found
-    
-    # Convert each column from int to str
-    for year in range(begin_year, end_year + 1):
-        df_sorted[str(year)] = df_sorted[str(year)].astype(str)
+    def json_geo(gdf_id):
+        if gdf_id.crs is None:
+            gdf_id = gdf_id.set_crs(epsg=25832)
+        gdf_id = gdf_id.to_crs(epsg=4326)
+        geo_j = gdf_id["geometry"].to_json()
+        return geo_j
 
+    geo_j_label = json_geo(gdf_id_label)
+    geo_j = json_geo(gdf_id)
+
+    # Create the map with the default or previous zoom level
+    m = folium.Map(location=map_center, zoom_start=default_zoom, max_zoom=24, max_native_zoom = 24)#, tiles='Cartodb dark_matter')
+    
 
     
-    return df_sorted
+
+    # Add the WMS layers and GeoJson layers as before
+    orto = folium.raster_layers.WmsTileLayer(
+        url="https://api.dataforsyningen.dk/orto_foraar_DAF?ignoreillegallayers=TRUE",
+        name=f"Ortofoto {year}",
+        layers=f"geodanmark_{year}_12_5cm",
+        fmt="image/png",
+        transparent=True,
+        attr="Dataforsyningen",
+        token='31c2b5dcede0148999f284bd1919e550',
+        extra_params={'token': '31c2b5dcede0148999f284bd1919e550'},
+        max_zoom=24,
+    ).add_to(m)
+
+    geo_json_layer = folium.GeoJson(
+        data=geo_j,
+        name=f"Predictions {year}",
+        style_function=lambda x: {"color": f"{color_value}", "weight": 2, "fillOpacity": 0},
+        show=show_prediction, 
+        max_zoom=24,
+        
+    ).add_to(m)
+    
+    folium.Popup(f"Objekt ID: {objekt_id}").add_to(geo_json_layer)
+
+    geo_json_layer = folium.GeoJson(
+        data=geo_j_label,
+        name=f"Label",
+        style_function=lambda x: {"color": "pink", "weight": 2, "fillOpacity": 0}, 
+        max_zoom=24,
+        show=show_label,
+        
+    ).add_to(m)
+
+    nir = folium.raster_layers.WmsTileLayer(
+        url="https://api.dataforsyningen.dk/orto_foraar_DAF?ignoreillegallayers=TRUE",
+        name="NIR",
+        fmt="image/png",
+        layers=f"geodanmark_{year}_12_5cm_cir",
+        transparent=True,
+        token='31c2b5dcede0148999f284bd1919e550',
+        extra_params={'token': '31c2b5dcede0148999f284bd1919e550'},
+        #by default the layer is not shown
+        show = False,
+        #max_zoom=26,
+        
+    ).add_to(m)
+
+    dhm = folium.raster_layers.WmsTileLayer(
+        url="https://api.dataforsyningen.dk/dhm_DAF?ignoreillegallayers=TRUE",
+        name="DHM",
+        layers="dhm_terraen_skyggekort",
+        show=False,
+        fmt="image/png",
+        transparent=True,
+        attr="Dataforsyningen",
+        token='31c2b5dcede0148999f284bd1919e550',
+        extra_params={'token': '31c2b5dcede0148999f284bd1919e550'},
+        
+    ).add_to(m)
+
+    
+
+    folium.LayerControl().add_to(m)
+
+    return m
