@@ -31,4 +31,4 @@ jobs:
 
       - name: Deploy Streamlit app
         run: |
-          streamlit run app.py  # Modify this to your actual Streamlit deployment command
+          streamlit run login.py  # Modify this to your actual Streamlit deployment command
