@@ -9,5 +9,5 @@ Pillow
 rasterio
 shapely
 firebase-admin
-
+st_click_detector
 
