@@ -32,7 +32,7 @@ st.set_page_config(layout="wide")
 if 'firebase_initialized' not in st.session_state:
     if not firebase_admin._apps:
         # Utiliser la clé du compte de service Firebase
-        cred = credentials.Certificate("./streamlitkoordinat-firebase-adminsdk-i88eo-174da6429f.json")
+        cred = credentials.Certificate("./firebase_key.json")
         firebase_admin.initialize_app(cred, {
             'storageBucket': 'streamlitkoordinat.appspot.com'  # Remplace par ton ID de projet Firebase
         })
