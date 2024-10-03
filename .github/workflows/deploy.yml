@@ -3,7 +3,7 @@ name: Deploy Streamlit App
 on:
   push:
     branches:
-      - main  # or the branch you want to trigger the deployment on
+      - main  # Or the branch you want to trigger the deployment on
 
 jobs:
   deploy:
@@ -27,7 +27,7 @@ jobs:
         env:
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
         run: |
-          echo $FIREBASE_PRIVATE_KEY > firebase_key.json
+          echo "$FIREBASE_PRIVATE_KEY" > firebase_key.json
 
       - name: Deploy Streamlit app
         run: |
